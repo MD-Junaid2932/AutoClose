@@ -15,19 +15,43 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - uses: android-actions/setup-android@v3
+
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: "8.7"
 
-      - name: Unzip and build
+      - name: Unzip project
         run: |
-          mkdir -p work out
-          for z in *.zip; do unzip -q -o "$z" -d work; done
+          rm -rf work && mkdir -p work out
+          # সবচেয়ে নতুন zip-টা নেওয়া হয় (পুরোনো zip মিশে যেন না যায়)
+          Z=$(ls -t $(find . -maxdepth 3 -name "*.zip" -not -path "./work/*") | head -n 1)
+          echo "Using zip: $Z"
+          unzip -q -o "$Z" -d work
           PROJ=$(dirname "$(find work -name settings.gradle.kts | head -n 1)")
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
           echo "Project folder: $PROJ"
+          ls "$PROJ"
+
+      - name: Build
+        run: |
           cd "$PROJ"
-          gradle assembleDebug --no-daemon
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/out/app-debug.apk"
+
+      - name: Show errors
+        if: failure()
+        run: |
+          echo "===== ERROR LINES ====="
+          grep -nE "^e: |error:|FAILURE|What went wrong|Could not|Unresolved|Execution failed" build.log | head -n 40 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
